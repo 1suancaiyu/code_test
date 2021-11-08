@@ -37,6 +37,13 @@
           </mappings>
         </serverdata>
       </paths>
+      <paths name="root@192.168.123.26:1322">
+        <serverdata>
+          <mappings>
+            <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="root@dell.com:1322">
         <serverdata>
           <mappings>

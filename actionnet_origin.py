@@ -42,8 +42,7 @@ class Action(nn.Module):
         self.action_p2_squeeze = nn.Conv2d(self.in_channels, self.reduced_channels, kernel_size=(1, 1), stride=(1, 1),
                                            bias=False, padding=(0, 0))
         self.action_p2_conv1 = nn.Conv1d(self.reduced_channels, self.reduced_channels, kernel_size=3, stride=1,
-                                         bias=False, padding=1,
-                                         groups=1)
+                                         bias=False, padding=1, groups=1)
         self.action_p2_expand = nn.Conv2d(self.reduced_channels, self.in_channels, kernel_size=(1, 1), stride=(1, 1),
                                           bias=False, padding=(0, 0))
 
@@ -59,16 +58,16 @@ class Action(nn.Module):
         print('=> Using ACTION')
 
     def forward(self, x):
-        nt, c, v = x.size()  # x.shape torch.Size([n*8, 64, 56, 56])
+        nt, c, h, w = x.size()  # x.shape torch.Size([n*8, 64, 56, 56])
         n_batch = nt // self.n_segment
 
-        x_shift = x.view(n_batch, self.n_segment, c, v)
-        x_shift = x_shift.permute([0, 3, 2, 1])  # (n_batch, h, w, c, n_segment)
-        x_shift = x_shift.contiguous().view(n_batch * v, c, self.n_segment)
+        x_shift = x.view(n_batch, self.n_segment, c, h, w)  # n,8,c,h,w
+        x_shift = x_shift.permute([0, 3, 4, 2, 1])  # (n_batch, h, w, c, n_segment)
+        x_shift = x_shift.contiguous().view(n_batch * h * w, c, self.n_segment)
         x_shift = self.action_shift(x_shift)  # (n_batch*h*w, c, n_segment)
-        x_shift = x_shift.view(n_batch, v, c, self.n_segment)
-        x_shift = x_shift.permute([0, 3, 1, 2])  # (n_batch, n_segment, c, h, w)
-        x_shift = x_shift.contiguous().view(nt, c, v)
+        x_shift = x_shift.view(n_batch, h, w, c, self.n_segment)
+        x_shift = x_shift.permute([0, 4, 3, 1, 2])  # (n_batch, n_segment, c, h, w)
+        x_shift = x_shift.contiguous().view(nt, c, h, w)
 
         # 3D convolution: c*T*h*w, spatial temporal excitation
         nt, c, h, w = x_shift.size()
@@ -110,19 +109,27 @@ class Action(nn.Module):
         return out
 
 
-inception_3a_1x1 = nn.Conv2d(64, 64, kernel_size=(1, 1), stride=(1, 1))
+
+inception_3a_1x1 = nn.Conv2d(192, 64, kernel_size=(1, 1), stride=(1, 1))
 act = Action(inception_3a_1x1)
 
-"""
+
 # images input
 image = torch.zeros([16,30,192,10,10], dtype=torch.float32)
 n, t, c, h, w = image.size()
 image = image.view(n * t, c, h, w)
+
 """
 
 # skeleton input
-ske = torch.zeros([16,300,64,25], dtype=torch.float32)
+ske = torch.zeros([16,300,3,25], dtype=torch.float32)
 n, t, c, v = ske.size()
 ske = ske.view(n * t, c, v)
 
-act(ske)
+"""
+
+act(image)
+
+
+
+

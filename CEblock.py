@@ -6,25 +6,21 @@ import pdb
 
 # skeleton CE model
 class CEModel(nn.Module):
-    def __init__(self, net, n_segment=3, shift_div=8):
+    def __init__(self, in_channels, out_channels, stride, n_segment=3):
         super(CEModel, self).__init__()
-        self.net = net
         self.n_segment = n_segment
-        self.in_channels = self.net.in_channels
-        self.out_channels = self.net.out_channels
-        self.kernel_size = self.net.kernel_size
-        self.stride = self.net.stride
-        self.padding = self.net.padding
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.stride = stride
         self.reduced_channels = self.in_channels // 16
         self.avg_pool = nn.AdaptiveAvgPool2d((None, 1))
         self.relu = nn.ReLU(inplace=True)
         self.sigmoid = nn.Sigmoid()
-        self.fold = self.in_channels // shift_div
 
-        # # channel excitation
         self.action_p2_squeeze = nn.Conv2d(in_channels=self.in_channels, out_channels=self.reduced_channels, kernel_size=1)
         self.action_p2_conv1 = nn.Conv1d(self.reduced_channels, self.reduced_channels, kernel_size=3, stride=1, bias=False, padding=1, groups=1)
-        self.action_p2_expand = nn.Conv2d(in_channels=self.reduced_channels, out_channels=self.in_channels, kernel_size=1)
+        self.action_p2_expand = nn.Conv2d(in_channels=self.reduced_channels, out_channels=self.in_channels, kernel_size=1, stride=1)
+        self.action_p2_out = nn.Conv2d(in_channels=self.in_channels, out_channels=self.in_channels, kernel_size=1, stride=self.stride)
 
     def forward(self, x):
         # get origin
@@ -51,6 +47,7 @@ class CEModel(nn.Module):
         # ending
         x_ce = self.sigmoid(x_ce)
         x_ce = x_origin * x_ce + x_origin
+        x_ce = self.action_p2_out(x_ce)
 
         return x_ce
 
@@ -68,10 +65,9 @@ print(y.shape)
 
 # skeleton test
 
-inception_3a_1x1 = nn.Conv2d(64, 64, kernel_size=(1, 1), stride=(1, 1))
 
 x = torch.zeros([16,64,300,25], dtype=torch.float32)
 n, c, t, v = x.size()
-ce = CEModel(inception_3a_1x1)
+ce = CEModel(64,64,stride=2)
 y = ce(x)
 print(y.shape)

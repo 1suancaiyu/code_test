@@ -22,6 +22,7 @@ class TAM(nn.Module):
         self.kernel_size = kernel_size
         self.stride = stride
         self.padding = padding
+        self.avg_pool = nn.AdaptiveAvgPool2d((None, 1))
         print('TAM with kernel_size {}.'.format(kernel_size))
 
         self.G = nn.Sequential(
@@ -44,38 +45,50 @@ class TAM(nn.Module):
 
     def forward(self, x):
         # x.size = N*C*T*(H*W)
-        nt, c, h, w = x.size()
+        N, T, C, V = x.size()
+        x = x.view(N * T, C, V)
+
+        nt, c, v = x.size()
         t = self.n_segment
         n_batch = nt // t
-        new_x = x.view(n_batch, t, c, h, w).permute(0, 2, 1, 3, 4).contiguous() # shape: (n_batch, c, t, h, w)
-        out = F.adaptive_avg_pool2d(new_x.view(n_batch * c, t, h, w), (1, 1)) # shape: (n_batch * c, t, 1, 1)
+        new_x = x.view(n_batch, t, c, v).permute(0, 2, 1, 3).contiguous() # shape: (n_batch, c, t, v)
+        out = self.avg_pool(new_x)
         out = out.view(-1, t) # shape: (n_batch * c, t)
-        conv_kernel = self.G(out.view(-1, t)).view(n_batch * c, 1, -1, 1) # conv_kernel.shape (n_batch * c, 1, kernel_size, 1)
-        local_activation = self.L(out.view(n_batch, c, t)).view(n_batch, c, t, 1, 1) # local_activation.shape (n_batch, c, t, 1, 1)
+        conv_kernel = self.G(out.view(-1, t))
+        conv_kernel = conv_kernel.view(n_batch * c, 1, -1, 1) # conv_kernel.shape (n_batch * c, 1, kernel_size, 1)
+        local_activation = self.L(out.view(n_batch, c, t))
+        local_activation = local_activation.view(n_batch, c, t, 1) # local_activation.shape (n_batch, c, t, 1)
         new_x = new_x * local_activation # shape: (n_batch, c, t, h, w)
-        out = F.conv2d(new_x.view(1, n_batch * c, t, h * w),
+        out = F.conv2d(new_x.view(1, n_batch * c, t, v),
                        conv_kernel,
                        bias=None,
                        stride=(self.stride, 1),
                        padding=(self.padding, 0),
                        groups=n_batch * c)
-        out = out.view(n_batch, c, t, h, w)
-        out = out.permute(0, 2, 1, 3, 4).contiguous().view(nt, c, h, w)
+        out = out.view(n_batch, c, t, v)
+        out = out.permute(0, 2, 1, 3).contiguous().view(nt, c, v)
+
+        out = out.view(N, T, C, V)
 
         return out
 
 # image
+# tam = TAM(64, n_segment=8, kernel_size=3, stride=1, padding=1)
+# x = torch.zeros([16,300,64,10,10], dtype=torch.float32)
+# n, t, c, h, w = x.size()
+# x = x.view(n * t, c, h, w)
+# y = tam(x)
+
+# skeleton
 tam = TAM(64, n_segment=8, kernel_size=3, stride=1, padding=1)
-x = torch.zeros([16,300,64,10,10], dtype=torch.float32)
-n, t, c, h, w = x.size()
-x = x.view(n * t, c, h, w)
+x = torch.zeros([16,300,64,25], dtype=torch.float32)
+# n, t, c, v = x.size()
+# x = x.view(n * t, c, v)
 y = tam(x)
-
-
-
 
 
 """
 torch.nn.functional.conv2d(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1)
 https://pytorch.org/docs/stable/generated/torch.nn.functional.conv2d.html
 """
+

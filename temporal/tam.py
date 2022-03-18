@@ -52,7 +52,7 @@ class TAM(nn.Module):
         out = out.view(-1, t) # shape: (n_batch * c, t)
         conv_kernel = self.G(out.view(-1, t)).view(n_batch * c, 1, -1, 1) # conv_kernel.shape (n_batch * c, 1, kernel_size, 1)
         local_activation = self.L(out.view(n_batch, c, t)).view(n_batch, c, t, 1, 1) # local_activation.shape (n_batch, c, t, 1, 1)
-        new_x = new_x * local_activation # shape: (n_batch, c, t, h, w)
+        new_x = new_x * local_activation # new_x shape: (n_batch, c, t, h, w) local_activation.shape (n_batch, c, t, 1, 1)
         out = F.conv2d(new_x.view(1, n_batch * c, t, h * w),
                        conv_kernel,
                        bias=None,
@@ -65,18 +65,14 @@ class TAM(nn.Module):
         return out
 
 # image
-# tam = TAM(64, n_segment=8, kernel_size=3, stride=1, padding=1)
-# x = torch.zeros([16,300,64,10,10], dtype=torch.float32)
-# n, t, c, h, w = x.size()
-# x = x.view(n * t, c, h, w)
-# y = tam(x)
-
-# skeleton
 tam = TAM(64, n_segment=8, kernel_size=3, stride=1, padding=1)
-x = torch.zeros([16,300,64,25], dtype=torch.float32)
-n, t, c, v = x.size()
-x = x.view(n * t, c, v)
+x = torch.randn([16,300,64,10,10], dtype=torch.float32)
+n, t, c, h, w = x.size()
+x = x.view(n * t, c, h, w)
 y = tam(x)
+
+
+
 
 
 """
@@ -84,3 +80,17 @@ torch.nn.functional.conv2d(input, weight, bias=None, stride=1, padding=0, dilati
 https://pytorch.org/docs/stable/generated/torch.nn.functional.conv2d.html
 """
 
+"""
+input:
+torch.Size([600, 64, 8])
+n_batch, c, t
+
+local
+Sequential(
+  (0): Conv1d(64, 16, kernel_size=(3,), stride=(1,), padding=(1,), bias=False)
+  (1): BatchNorm1d(16, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+  (2): ReLU(inplace=True)
+  (3): Conv1d(16, 64, kernel_size=(1,), stride=(1,), bias=False)
+  (4): Sigmoid()
+)
+"""

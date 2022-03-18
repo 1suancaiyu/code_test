@@ -42,8 +42,7 @@ class Action(nn.Module):
         self.action_p2_squeeze = nn.Conv2d(self.in_channels, self.reduced_channels, kernel_size=(1, 1), stride=(1, 1),
                                            bias=False, padding=(0, 0))
         self.action_p2_conv1 = nn.Conv1d(self.reduced_channels, self.reduced_channels, kernel_size=3, stride=1,
-                                         bias=False, padding=1,
-                                         groups=1)
+                                         bias=False, padding=1, groups=1)
         self.action_p2_expand = nn.Conv2d(self.reduced_channels, self.in_channels, kernel_size=(1, 1), stride=(1, 1),
                                           bias=False, padding=(0, 0))
 
@@ -59,25 +58,25 @@ class Action(nn.Module):
         print('=> Using ACTION')
 
     def forward(self, x):
-        nt, c, v = x.size()  # x.shape torch.Size([n*8, 64, 56, 56])
+        nt, c, h, w = x.size()  # x.shape torch.Size([n*8, 64, 56, 56])
         n_batch = nt // self.n_segment
 
-        x_shift = x.view(n_batch, self.n_segment, c, v)
-        x_shift = x_shift.permute([0, 3, 2, 1])  # (n_batch, h, w, c, n_segment)
-        x_shift = x_shift.contiguous().view(n_batch * v, c, self.n_segment)
+        x_shift = x.view(n_batch, self.n_segment, c, h, w)  # n,8,c,h,w
+        x_shift = x_shift.permute([0, 3, 4, 2, 1])  # (n_batch, h, w, c, n_segment)
+        x_shift = x_shift.contiguous().view(n_batch * h * w, c, self.n_segment)
         x_shift = self.action_shift(x_shift)  # (n_batch*h*w, c, n_segment)
-        x_shift = x_shift.view(n_batch, v, c, self.n_segment)
-        x_shift = x_shift.permute([0, 3, 1, 2])  # (n_batch, n_segment, c, h, w)
-        x_shift = x_shift.contiguous().view(nt, c, v)
+        x_shift = x_shift.view(n_batch, h, w, c, self.n_segment)
+        x_shift = x_shift.permute([0, 4, 3, 1, 2])  # (n_batch, n_segment, c, h, w)
+        x_shift = x_shift.contiguous().view(nt, c, h, w)
 
         # 3D convolution: c*T*h*w, spatial temporal excitation
         nt, c, h, w = x_shift.size()
         x_p1 = x_shift.view(n_batch, self.n_segment, c, h, w).transpose(2, 1).contiguous()
         x_p1 = x_p1.mean(1, keepdim=True)
-        x_p1 = self.action_p1_conv1(x_p1)
-        x_p1 = x_p1.transpose(2, 1).contiguous().view(nt, 1, h, w)
-        x_p1 = self.sigmoid(x_p1)
-        x_p1 = x_shift * x_p1 + x_shift
+        x_p1 = self.action_p1_conv1(x_p1) # [160, 1, 3, 10, 10] nt/s,1,n_segmet,h,w
+        x_p1 = x_p1.transpose(2, 1).contiguous().view(nt, 1, h, w) # nt,1,h,w
+        x_p1 = self.sigmoid(x_p1) # nt,1,h,w
+        x_p1 = x_shift * x_p1 + x_shift # (nt,c,h,w) * (nt,1,h,w)
 
         # 2D convolution: c*T*1*1, channel excitation
         x_p2 = self.avg_pool(x_shift)
@@ -89,7 +88,7 @@ class Action(nn.Module):
         x_p2 = x_p2.transpose(2, 1).contiguous().view(-1, c, 1, 1)
         x_p2 = self.action_p2_expand(x_p2)
         x_p2 = self.sigmoid(x_p2)
-        x_p2 = x_shift * x_p2 + x_shift
+        x_p2 = x_shift * x_p2 + x_shift # x_shift.shape nt,c,h,w  x_p2.shape nt,c,1,1
 
         # # 2D convolution: motion excitation
         x3 = self.action_p3_squeeze(x_shift)
@@ -104,25 +103,34 @@ class Action(nn.Module):
         x_p3 = self.avg_pool(x_p3.view(nt, c, h, w))
         x_p3 = self.action_p3_expand(x_p3)
         x_p3 = self.sigmoid(x_p3)
-        x_p3 = x_shift * x_p3 + x_shift
+        x_p3 = x_shift * x_p3 + x_shift # x_shift.shape torch.Size([480, 192, 10, 10]) x_p3.shape torch.Size([480, 192, 1, 1])
+        # activate motion-sensitive channel
 
         out = self.net(x_p1 + x_p2 + x_p3)
         return out
 
 
-inception_3a_1x1 = nn.Conv2d(64, 64, kernel_size=(1, 1), stride=(1, 1))
+
+inception_3a_1x1 = nn.Conv2d(192, 64, kernel_size=(1, 1), stride=(1, 1))
 act = Action(inception_3a_1x1)
 
-"""
+
 # images input
-image = torch.zeros([16,30,192,10,10], dtype=torch.float32)
+image = torch.randn([16,30,192,10,10], dtype=torch.float32)
 n, t, c, h, w = image.size()
 image = image.view(n * t, c, h, w)
+
 """
 
 # skeleton input
-ske = torch.zeros([16,300,64,25], dtype=torch.float32)
+ske = torch.zeros([16,300,3,25], dtype=torch.float32)
 n, t, c, v = ske.size()
 ske = ske.view(n * t, c, v)
 
-act(ske)
+"""
+
+act(image)
+
+
+
+

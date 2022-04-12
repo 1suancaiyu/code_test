@@ -91,7 +91,7 @@ class Action(nn.Module):
         x_p2 = x_shift * x_p2 + x_shift # x_shift.shape nt,c,h,w  x_p2.shape nt,c,1,1
 
         # # 2D convolution: motion excitation
-        x3 = self.action_p3_squeeze(x_shift)
+        x3 = self.action_p3_squeeze(x_shift) # nt,c,h,w
         x3 = self.action_p3_bn1(x3)
         nt, c, h, w = x3.size()
         x3_plus0, _ = x3.view(n_batch, self.n_segment, c, h, w).split([self.n_segment - 1, 1], dim=1)
@@ -101,8 +101,8 @@ class Action(nn.Module):
         x_p3 = x3_plus1 - x3_plus0
         x_p3 = F.pad(x_p3, self.pad, mode="constant", value=0)
         x_p3 = self.avg_pool(x_p3.view(nt, c, h, w))
-        x_p3 = self.action_p3_expand(x_p3)
-        x_p3 = self.sigmoid(x_p3)
+        x_p3 = self.action_p3_expand(x_p3) # nt,c,1,1
+        x_p3 = self.sigmoid(x_p3) #
         x_p3 = x_shift * x_p3 + x_shift # x_shift.shape torch.Size([480, 192, 10, 10]) x_p3.shape torch.Size([480, 192, 1, 1])
         # activate motion-sensitive channel
 
@@ -111,12 +111,12 @@ class Action(nn.Module):
 
 
 
-inception_3a_1x1 = nn.Conv2d(192, 64, kernel_size=(1, 1), stride=(1, 1))
+inception_3a_1x1 = nn.Conv2d(64, 64, kernel_size=(1, 1), stride=(1, 1))
 act = Action(inception_3a_1x1)
 
 
 # images input
-image = torch.randn([16,30,192,10,10], dtype=torch.float32)
+image = torch.randn([3,60,64,10,10], dtype=torch.float32)
 n, t, c, h, w = image.size()
 image = image.view(n * t, c, h, w)
 

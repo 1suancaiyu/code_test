@@ -1,0 +1,37 @@
+        # get origin
+        n, c, t, v = x.size()
+        n_batch = n * t // self.n_segment
+        x_origin = x = x.permute(0, 2, 1, 3).contiguous().view(n * t, c, v)
+
+        # spatial pooling
+        x_stce = self.avg_pool(x)
+
+        # reshape each group 3 frame
+        x_stce = x_stce.view(n_batch, self.n_segment, c, 1).squeeze(-1).transpose(2, 1).contiguous()
+        # squeeze
+        x_stce = self.conv_squeeze(x_stce)
+        _,c_r,_ = x_stce.size()
+
+        # temporal and spatial conv
+        x_stce = self.sce_spatial_conv(x_stce) + self.tce_tmp_conv(x_stce)
+
+        # relu as SEnet
+        x_stce = self.relu(x_stce)
+
+        # reshape
+        x_stce = x_stce.transpose(2,1).contiguous().view(-1, c_r, 1)
+
+        # 1D convolution, channel expand
+        x_stce = self.tce_expand(x_stce)
+        # get importance weight for channel dim
+        x_stce_score = self.sigmoid(x_stce)
+
+        # excite channel dim
+        x_stce = x_origin * x_stce_score + x_origin
+
+        # reshape as origin input
+        x_stce = x_stce.view(n, t, c, v).permute(0, 2, 1, 3).contiguous()
+
+        x_stce = self.bn(x_stce)
+
+        return x_stce

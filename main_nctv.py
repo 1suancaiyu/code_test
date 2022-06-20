@@ -1,178 +1,127 @@
 
 import torch.nn as nn
 import torch
-
-# class Temporal_Channel_Excitation_conv1d_two_layer(nn.Module):
-#     def __init__(self, in_channels, n_segment=3, redu=8):
-#         super(Temporal_Channel_Excitation_conv1d_two_layer, self).__init__()
-#         self.n_segment = n_segment
-#         self.in_channels = in_channels
-#         self.reduced_channels = self.in_channels // redu
-#
-#         self.avg_pool = nn.AdaptiveAvgPool1d(1)
-#         self.relu = nn.ReLU(inplace=True)
-#         self.sigmoid = nn.Sigmoid()
-#
-#         self.tce_tmp_conv = nn.Conv1d(self.in_channels, self.reduced_channels, kernel_size=3, stride=1, bias=False, padding=1, groups=1)
-#         self.tce_expand = nn.Conv1d(in_channels=self.reduced_channels, out_channels=self.in_channels, kernel_size=1)
-#         self.bn = nn.BatchNorm2d(self.in_channels)
-#
-#     def forward(self, x):
-#         # get origin
-#         n, c, t, v = x.size()
-#         n_batch = n * t // self.n_segment
-#         x_origin = x = x.permute(0, 2, 1, 3).contiguous().view(n * t, c, v)
-#
-#         # spatial pooling
-#         x_tce = self.avg_pool(x)
-#
-#         # reshape each group 3 frame
-#         x_tce = x_tce.view(n_batch, self.n_segment, c, 1).squeeze(-1).transpose(2, 1).contiguous()
-#         # temporal conv
-#         x_tce = self.tce_tmp_conv(x_tce)
-#         _,c_r,_ = x_tce.size()
-#         # relu as SEnet
-#         x_tce = self.relu(x_tce)
-#
-#         # reshape
-#         x_tce = x_tce.transpose(2,1).contiguous().view(-1, c_r, 1)
-#
-#         # 1D convolution, channel expand
-#         x_tce = self.tce_expand(x_tce)
-#         # get importance weight for channel dim
-#         x_tce = self.sigmoid(x_tce)
-#
-#         # excite channel dim
-#         x_tce = x_origin * x_tce + x_origin
-#
-#         # reshape as origin input
-#         x_tce = x_tce.view(n, t, c, v).permute(0, 2, 1, 3).contiguous()
-#
-#         x_tce = self.bn(x_tce)
-#
-#         return x_tce
-#
-# # Spatial_Channel_Excitation
-# class Spatial_Channel_Excitation_SE(nn.Module):
-#     def __init__(self, in_channels, redu=8):
-#         super(Spatial_Channel_Excitation_SE, self).__init__()
-#         redu_channels = in_channels // redu
-#         self.conv_squeeze = nn.Conv1d(in_channels=in_channels, out_channels=redu_channels, kernel_size=1)
-#         self.conv_spatial = nn.Conv1d(in_channels=redu_channels, out_channels=redu_channels, kernel_size=1)
-#         self.conv_expand = nn.Conv1d(in_channels=redu_channels, out_channels=in_channels, kernel_size=1)
-#         self.sigmoid = nn.Sigmoid()
-#         print(">>>>>>  Spatial_Channel_Excitation")
-#
-#     def forward(self, x):
-#         # get origin
-#         n, c, t, v = x.size()
-#         x_origin = x = x.permute(0, 2, 1, 3).contiguous().view(n * t, c, v)
-#         x = self.conv_squeeze(x)
-#         x = self.conv_spatial(x)
-#         x = self.conv_expand(x)
-#         x_spatical_score = self.sigmoid(x)
-#         x = x_origin * x_spatical_score
-#         x = x.view(n, t, c, v).permute(0, 2, 1, 3).contiguous()
-#         return x
+import torch.nn.functional as F
 
 
-# MTA_STCE channel split
-class MTA_STCE(nn.Module):
-    def __init__(self, in_channels):
-        super(MTA_STCE, self).__init__()
-        assert in_channels % 2 == 0
-        self.width = in_channels // 2
+class Motion_Temporal_Excitation(nn.Module):
+    def __init__(self, in_channels, n_segment=3):
+        super(Motion_Temporal_Excitation, self).__init__()
+        self.in_channels = in_channels
+        self.n_segment = n_segment
 
-        class Temporal_Channel_Excitation_conv1d_two_layer(nn.Module):
-            def __init__(self, in_channels, n_segment=3, redu=8):
-                super(Temporal_Channel_Excitation_conv1d_two_layer, self).__init__()
-                self.n_segment = n_segment
-                self.in_channels = in_channels
-                self.reduced_channels = self.in_channels // redu
+        self.reduced_channels = self.in_channels // 16
 
-                self.avg_pool = nn.AdaptiveAvgPool1d(1)
-                self.relu = nn.ReLU(inplace=True)
-                self.sigmoid = nn.Sigmoid()
+        self.pad = (0, 0, 0, 0, 0, 1)
+        self.avg_pool = nn.AdaptiveAvgPool2d((None, 1))
 
-                self.tce_tmp_conv = nn.Conv1d(self.in_channels, self.reduced_channels, kernel_size=3, stride=1,
-                                              bias=False, padding=1, groups=1)
-                self.tce_expand = nn.Conv1d(in_channels=self.reduced_channels, out_channels=self.in_channels,
-                                            kernel_size=1)
-                self.bn = nn.BatchNorm2d(self.in_channels)
+        # layers
+        self.me_squeeze = nn.Conv2d(in_channels=self.in_channels, out_channels=self.reduced_channels, kernel_size=1)
+        self.me_bn1 = nn.BatchNorm2d(self.reduced_channels)
+        self.me_conv1 = nn.Conv2d(self.reduced_channels, self.reduced_channels, kernel_size=1)
+        self.me_expand = nn.Conv2d(in_channels=self.reduced_channels, out_channels=self.in_channels, kernel_size=1)
 
-            def forward(self, x):
-                # get origin
-                n, c, t, v = x.size()
-                n_batch = n * t // self.n_segment
-                x_origin = x = x.permute(0, 2, 1, 3).contiguous().view(n * t, c, v)
+        self.sigmoid = nn.Sigmoid()
 
-                # spatial pooling
-                x_tce = self.avg_pool(x)
-
-                # reshape each group 3 frame
-                x_tce = x_tce.view(n_batch, self.n_segment, c, 1).squeeze(-1).transpose(2, 1).contiguous()
-                # temporal conv
-                x_tce = self.tce_tmp_conv(x_tce)
-                _, c_r, _ = x_tce.size()
-                # relu as SEnet
-                x_tce = self.relu(x_tce)
-
-                # reshape
-                x_tce = x_tce.transpose(2, 1).contiguous().view(-1, c_r, 1)
-
-                # 1D convolution, channel expand
-                x_tce = self.tce_expand(x_tce)
-                # get importance weight for channel dim
-                x_tce = self.sigmoid(x_tce)
-
-                # excite channel dim
-                x_tce = x_origin * x_tce + x_origin
-
-                # reshape as origin input
-                x_tce = x_tce.view(n, t, c, v).permute(0, 2, 1, 3).contiguous()
-
-                x_tce = self.bn(x_tce)
-
-                return x_tce
-
-        # Spatial_Channel_Excitation
-        class Spatial_Channel_Excitation_SE(nn.Module):
-            def __init__(self, in_channels, redu=8):
-                super(Spatial_Channel_Excitation_SE, self).__init__()
-                redu_channels = in_channels // redu
-                self.conv_squeeze = nn.Conv1d(in_channels=in_channels, out_channels=redu_channels, kernel_size=1)
-                self.conv_spatial = nn.Conv1d(in_channels=redu_channels, out_channels=redu_channels, kernel_size=1)
-                self.conv_expand = nn.Conv1d(in_channels=redu_channels, out_channels=in_channels, kernel_size=1)
-                self.sigmoid = nn.Sigmoid()
-                print(">>>>>>  Spatial_Channel_Excitation")
-
-            def forward(self, x):
-                # get origin
-                n, c, t, v = x.size()
-                x_origin = x = x.permute(0, 2, 1, 3).contiguous().view(n * t, c, v)
-                x = self.conv_squeeze(x)
-                x = self.conv_spatial(x)
-                x = self.conv_expand(x)
-                x_spatical_score = self.sigmoid(x)
-                x = x_origin * x_spatical_score
-                x = x.view(n, t, c, v).permute(0, 2, 1, 3).contiguous()
-                return x
-
-        self.tce = Temporal_Channel_Excitation_conv1d_two_layer(in_channels//2)
-        self.sce = Spatial_Channel_Excitation_SE(in_channels//2)
+        print('=> Using Motion_Excitation')
 
     def forward(self, x):
         # get origin
+        x_origin = x
         n, c, t, v = x.size()
-        spx = torch.split( x, self.width, 1 )
-        tce = self.tce(spx[0])
-        sce = self.sce(spx[1])
-        stce = torch.cat((tce,sce),dim=1)
-        return stce
+
+        # get n_batch
+        x = x.permute(0, 2, 1, 3).contiguous().view(n * t, c, v)
+        nt, c, v = x.size()
+        n_batch = nt // self.n_segment
+
+        # squeeze conv
+        x = x.view(n, t, c, v).permute(0, 2, 1, 3).contiguous()
+        x = self.me_squeeze(x)
+        x = self.me_bn1(x)
+        n, c_r, t, v = x.size()
+        x = x.permute(0, 2, 1, 3).contiguous().view(n * t, c_r, v)
+
+        # temporal split
+        nt, c_r, v = x.size()
+        x_plus0, _ = x.view(n_batch, self.n_segment, c_r, v).split([self.n_segment - 1, 1], dim=1)  # x(t) torch.Size([2000, 2, 4, 25])
+
+        # x(t+1) conv
+        x = x.view(n, t, c_r, v).permute(0, 2, 1, 3).contiguous()
+        x_plus1 = self.me_conv1(x)
+        x_plus1 = x_plus1.permute(0, 2, 1, 3).contiguous().view(n * t, c_r, v)
+        _, x_plus1 = x_plus1.view(n_batch, self.n_segment, c_r, v).split([1, self.n_segment - 1], dim=1)  # x(t+1) torch.Size([2000, 2, 4, 25])
+
+        # subtract
+        x_me = x_plus1 - x_plus0  # torch.Size([2000, 2, 4, 25]) torch.Size([2000, 2, 4, 25])
+
+        # pading
+        x_me = F.pad(x_me, self.pad, mode="constant", value=0)  # torch.Size([2000, 2, 4, 25]) -> orch.Size([2001, 2, 4, 25])
+
+        # spatical pooling
+        x_me = x_me.view(n, t, c_r, v).permute(0, 2, 1, 3).contiguous()
+        x_me = self.avg_pool(x_me)
+
+        # expand
+        x_me = self.me_expand(x_me)  # torch.Size([6000, 64, 1])
+
+        # sigmoid
+        me_weight = self.sigmoid(x_me)
+        x = x_origin * me_weight # n,c,t,v * n,c,t,1
+        return x
+
+class Motion_Temporal_Att(nn.Module):
+    def __init__(self, in_channels, n_segment=3):
+        super(Motion_Temporal_Att, self).__init__()
+        self.spatical_pooling = nn.AdaptiveAvgPool1d(1)
+        self.temporal_conv = nn.Conv1d(1, 1, kernel_size=1)
+        self.sigmoid = nn.Sigmoid()
+        self.pad = (0, 0, 0, 1)
+    def forward(self, x):
+        # get origin
+        x_origin = x
+        n, c, t, v = x.size()
+        x = x.mean(1)
+        x_t, _ = x.view(n, t, v).split([t - 1, 1], dim=1)
+        _, x_t1 = x.view(n, t, v).split([1, t - 1], dim=1)
+        x_motion = x_t1 - x_t
+        x_motion = F.pad(x_motion, self.pad, mode="constant", value=0)
+        x_motion = x_motion.abs()
+        x_motion = self.spatical_pooling(x_motion)
+        x_motion = self.temporal_conv(x_motion.squeeze(-1).view(n,1,t))
+        x_motion_temporal_score = self.sigmoid(x_motion)
+        x_motion_temporal_score = x_motion_temporal_score.view(n, 1, t, 1)
+        x = x_origin * x_motion_temporal_score + x_origin
+        return x
+
+class Motion_Spatial_Att(nn.Module):
+    def __init__(self, in_channels, n_segment=3):
+        super(Motion_Spatial_Att, self).__init__()
+        self.spatical_pooling = nn.AdaptiveAvgPool1d(1)
+        self.spatial_conv = nn.Conv1d(1, 1, kernel_size=1)
+        self.sigmoid = nn.Sigmoid()
+        self.pad = (0, 0, 0, 1)
+    def forward(self, x):
+        # get origin
+        x_origin = x
+        n, c, t, v = x.size()
+        x = x.mean(1)
+        x_t, _ = x.view(n, t, v).split([t - 1, 1], dim=1)
+        _, x_t1 = x.view(n, t, v).split([1, t - 1], dim=1)
+        x_motion = x_t1 - x_t
+        x_motion = F.pad(x_motion, self.pad, mode="constant", value=0)
+        x_motion = x_motion.abs()
+        x_motion = x_motion.mean(1, keepdim=True)
+        x_motion = self.spatial_conv(x_motion)
+        x_motion_spatial_score = self.sigmoid(x_motion)
+        x_motion_spatial_score = x_motion_spatial_score.unsqueeze(1)
+        x = x_origin * x_motion_spatial_score + x_origin
+        return x
 
 def main():
     x = torch.randn([30, 64, 300, 25], dtype=torch.float32)
-    module = MTA_STCE(in_channels=64)
+    # module = SCE_SENet(in_channels=64, num_jpts=25)
+    module = Motion_Spatial_Att(in_channels=64)
     print(module)
     x = module(x)
     print(x.shape)

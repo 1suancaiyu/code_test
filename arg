@@ -1,0 +1,30 @@
+# shiftgcn
+--config ./config/nturgbd-cross-subject/train_joint.yaml --test-batch-size 51 --batch-size 51 --device 0 1 2 --num-epoch 200 --work-dir work_dir/msce/ -Experiment_name history_ce -model_saved_name history_ce --save-interval 1 --eval-interval 1
+
+--config
+./config/nturgbd-cross-subject/train_joint.yaml
+--test-batch-size
+51
+--batch-size
+51
+--device
+0
+1
+2
+--num-epoch
+200
+--work-dir
+work_dir/msce/
+-Experiment_name
+history_ce
+-model_saved_name
+history_ce
+--save-interval
+1
+--eval-interval
+1
+
+
+# stgcn
+
+# ctrgcn

@@ -61,14 +61,18 @@ def vis_ntu_skeleton(file_name):
     color_point = 'orangered' #关节点颜色,可输入16进制调色板 orangered
     color_bone = 'darkgrey' #骨骼颜色 darkgrey
 
+    joint_weights = [30,30,30,10,20,  15,30,30,15,15, 10,15,10,10,10, 20,20,70,300,100, 10,10,10,5,5]
+
     for i in range(n, m):
         plt.cla()  ## Clear axis即清除当前图形中的当前活动轴。其他轴不受影响。
         # (0, frame, joint, person) (xyz, frame, joint, person)
 
-        plt.scatter(point[0, i, :, :], point[1, i, :, :], c=color_point, s=200.0)  # 通过散点图绘制关节点
-
-        # for j in range(25):
-        #     plt.scatter(point[0, i, :, :], point[1, i, :, :], c=color_point, s=200.0)  # 通过散点图绘制关节点
+        # plt.scatter(point[0, i, :, :], point[1, i, :, :], c=color_point, s=200.0)  # 通过散点图绘制关节点
+        for j in range(25):
+            # un reweighted
+            # plt.scatter(point[0, i, j, 0], point[1, i, j, 0], c=color_point, s=20)  # 通过散点图绘制关节点
+            # reweighted
+            plt.scatter(point[0, i, j, 0], point[1, i, j, 0], c=color_point, s=joint_weights[j]*5)  # 通过散点图绘制关节点
 
         # 通过直线图绘制两点间的连接线，即骨骼
         plt.plot(point[0, i, arms, 0], point[1, i, arms, 0], c=color_bone, lw=2.0)
@@ -94,6 +98,7 @@ def vis_ntu_skeleton(file_name):
         # save fig
         # fig_name = "S001C003P008R001A024" + "_frame_" + str(i) + ".png"
         # plt.savefig(fig_name, dpi=100)
+        # if m == 29:
         plt.show()
         plt.close('all')
 
